@@ -1,0 +1,5 @@
+{
+  "name": "@simple/urlpattern-router",
+  "version": "0.0.1",
+  "exports": "./mod.ts"
+}
