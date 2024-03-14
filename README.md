@@ -22,6 +22,8 @@ Deno.serve(router.fetch);
 
 ## Goals
 
-Closely match the definition for a [Request Handler set out by Steven Krouse](https://blog.val.town/blog/the-api-we-forgot-to-name/).
+Closely match the definition for a
+[Request Handler set out by Steven Krouse](https://blog.val.town/blog/the-api-we-forgot-to-name/).
 
-> a function that takes a Request as it’s first argument, can have arbitrary other arguments, and outputs a Response.
+> a function that takes a Request as it’s first argument, can have arbitrary
+> other arguments, and outputs a Response.
