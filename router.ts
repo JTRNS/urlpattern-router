@@ -204,12 +204,12 @@ export class Router<
     return () => new Response("Not Found", { status: 404 });
   }
 
-  handle(req: Request, ctx: T, ...args: Env[]) {
+  handle(req: Request, ctx: T, ...args: Env[]): ReturnType<Handler<T, Env>> {
     const method = req.method;
     const match = req.url.match(/^https?:\/\/[^/]+(\/[^?]*)/);
     const pathname = match ? match[1] : "";
     return this.match(method, pathname)(req, ctx, ...args);
   }
 
-  fetch = this.handle.bind(this);
+  fetch: typeof this.handle = this.handle.bind(this);
 }
