@@ -6,8 +6,8 @@ type Handler<T = any, U = any> = (
   ctx: T,
   ...args: U[]
 ) => Response | Promise<Response>;
-type RequestHandler<P, T> = Handler<T & { params: RoutePath<P> }>;
-type MiddlewareHandler<P, T> = Handler<
+export type RequestHandler<P, T> = Handler<T & { params: RoutePath<P> }>;
+export type MiddlewareHandler<P, T> = Handler<
   T & { params: RoutePath<P>; next(): Response | Promise<Response> }
 >;
 
