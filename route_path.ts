@@ -16,6 +16,14 @@ type RemoveOptionalSuffix<Key> = Key extends `${infer Name}?`
 
 type RemovePattern<Key> = Key extends `${infer Name}(${string}` ? Name : Key;
 
+/**
+ * Represents a route path with typed parameters.
+ * @template Path - The path pattern.
+ */
 export type RoutePath<Path> = {
+  /**
+   * Represents the typed parameters extracted from the path pattern.
+   * @template Key - The parameter key.
+   */
   [Key in FilteredParts<Path> as RemoveOptionalSuffix<Key>]: ParamValue<Key>;
 };

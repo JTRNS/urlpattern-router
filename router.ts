@@ -6,7 +6,20 @@ type Handler<T = any, U = any> = (
   ctx: T,
   ...args: U[]
 ) => Response | Promise<Response>;
+/**
+ * Represents a request handler function that accepts a generic parameter `P` for route parameters
+ * and a generic parameter `T` for the context object.
+ * The `params` property of the `T` type is used to store the route parameters.
+ *
+ * @template P - The type of route parameters.
+ * @template T - The type of the request body.
+ */
 export type RequestHandler<P, T> = Handler<T & { params: RoutePath<P> }>;
+/**
+ * Represents a middleware handler function.
+ * @template P - The type of the route parameters. Should be automatically inferred.
+ * @template T - The type of the context object. This is the type used when creating a new Router instance
+ */
 export type MiddlewareHandler<P, T> = Handler<
   T & { params: RoutePath<P>; next(): Response | Promise<Response> }
 >;
@@ -24,6 +37,12 @@ interface DynamicRoute extends StaticRoute {
 
 type Route = StaticRoute | DynamicRoute;
 
+/**
+ * Represents a router that handles routing and middleware for HTTP requests.
+ *
+ * @template T - The type of the context object.
+ * @template Env - The type of the environment object.
+ */
 export class Router<
   T extends object = Record<string | number | symbol, never>,
   // deno-lint-ignore no-explicit-any
