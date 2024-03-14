@@ -24,9 +24,9 @@ interface DynamicRoute extends StaticRoute {
 
 type Route = StaticRoute | DynamicRoute;
 
-// deno-lint-ignore no-explicit-any
 export class Router<
   T extends object = Record<string | number | symbol, never>,
+  // deno-lint-ignore no-explicit-any
   Env extends any = any,
 > {
   #cachedRoutes: Record<string, Record<string, Route | undefined> | undefined> =
