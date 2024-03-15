@@ -20,14 +20,15 @@ export type RequestHandler<P, T> = Handler<T & { params: RoutePath<P> }>;
  * @template P - The type of the route parameters. Should be automatically inferred.
  * @template T - The type of the context object. This is the type used when creating a new Router instance
  */
-export type MiddlewareHandler<P, T> = Handler<
-  T & { params: RoutePath<P>; next(): Response | Promise<Response> }
+export type MiddlewareHandler<T> = Handler<
+  T & { next(): Response | Promise<Response> }
 >;
 
 interface StaticRoute {
   method: string;
   pathname: string;
-  handlers: Handler[];
+  handler: Handler;
+  middleware?: Handler;
 }
 
 interface DynamicRoute extends StaticRoute {
@@ -54,7 +55,7 @@ export class Router<
   #staticRoutes: Record<string, Record<StaticRoute["pathname"], StaticRoute>> =
     {};
 
-  #middlewares: Array<[URLPattern, MiddlewareHandler<string, T>[]]> = [];
+  #middlewares: [URLPattern, MiddlewareHandler<T>[]][] = [];
 
   add<P extends string>(
     method: string | string[],
@@ -69,7 +70,7 @@ export class Router<
       const r: StaticRoute = {
         method,
         pathname: path,
-        handlers: [handler],
+        handler: handler,
       };
       if (this.#staticRoutes[method]) {
         this.#staticRoutes[method][path] = r;
@@ -80,7 +81,7 @@ export class Router<
       const r: DynamicRoute = {
         method,
         pathname: path,
-        handlers: [handler],
+        handler: handler,
         pattern: new URLPattern({ pathname: path }),
         params: {},
       };
@@ -92,16 +93,16 @@ export class Router<
     }
   }
 
-  use<P extends string>(path: P, handler: MiddlewareHandler<P, T>) {
+  use(path: string, handler: MiddlewareHandler<T>) {
     for (let i = 0; i < this.#middlewares.length; i++) {
       const [pattern, handlers] = this.#middlewares[i];
       if (pattern.pathname === path) {
-        handlers.push(handler as MiddlewareHandler<string, T>);
+        handlers.push(handler as MiddlewareHandler<T>);
         return;
       }
     }
     this.#middlewares.push([new URLPattern({ pathname: path }), [
-      handler as MiddlewareHandler<string, T>,
+      handler,
     ]]);
   }
 
@@ -137,90 +138,119 @@ export class Router<
     context: T,
     ...args: Env[]
   ): Promise<Response> {
-    const handlers = route.handlers;
-    let index = handlers.length;
+    const handler = route.handler;
+    const composedMiddleware = route.middleware;
     const params = "params" in route ? route.params : {};
     const next = async (
       response: Response = new Response(),
     ): Promise<Response> => {
-      index--;
-
-      if (index > 0) {
-        response = await handlers[index](
+      if (composedMiddleware) {
+        response = await composedMiddleware(
           request,
           Object.assign(context, { next }, params),
           ...args,
         );
-      } else {
-        // remove next method from context?
-        response = await handlers[index](
-          request,
-          Object.assign(context, { params }),
-          ...args,
-        );
       }
+      response = await handler(
+        request,
+        Object.assign(context, { params }),
+        ...args,
+      );
+
       return response;
     };
     return next();
   }
 
-  #attachMiddleware(
-    route: Route,
-    middlewares: MiddlewareHandler<string, T>[][],
-  ) {
-    for (let i = 0; i < middlewares.length; i++) {
-      for (let j = 0; j < middlewares[i].length; j++) {
-        console.log("pushing middleware into handlers of: ", route.pathname);
-        route.handlers.push(middlewares[i][j]);
+  composeMiddleware(
+    middlewares: MiddlewareHandler<T>[],
+  ): Handler<T, Env> {
+    return (request, context, ...args) => {
+      let index = -1;
+      return next(0);
+      function next(i: number): Promise<Response> {
+        if (i <= index) {
+          return Promise.reject(new Error("next() called multiple times"));
+        }
+        index = i;
+        const fn = middlewares.at(i);
+
+        if (!fn) return Promise.resolve(new Response());
+        try {
+          return Promise.resolve(
+            fn(
+              request,
+              Object.assign(context, { next: next.bind(null, i + 1) }),
+              ...args,
+            ),
+          );
+        } catch (err) {
+          return Promise.reject(err);
+        }
       }
-    }
+    };
   }
 
   match(method: string, path: string): Handler<T, Env> {
     const cached = this.#cachedRoutes?.[method]?.[path];
     if (cached) {
+      console.count("CACHE HIT");
       return (req: Request, ctx: T, ...args: Env[]) =>
         this.#handleRoute(req, cached, ctx, ...args);
     }
 
-    const collection: MiddlewareHandler<string, T>[][] = [];
-    for (let i = this.#middlewares.length; i--;) {
+    const collection: MiddlewareHandler<T>[] = [];
+    for (let i = 0; i < this.#middlewares.length; i++) {
       const [pattern, handlers] = this.#middlewares[i];
       if (pattern.test({ pathname: path })) {
-        collection.push(handlers);
+        for (let j = 0; j < handlers.length; j++) {
+          const middlewareHandler = handlers[j];
+          collection.push(middlewareHandler);
+        }
       }
     }
+
+    const middlewareHandler = this.composeMiddleware(collection);
 
     const staticRoute: StaticRoute | undefined = this.#staticRoutes?.[method]
       ?.[path];
     if (staticRoute) {
-      console.count("static route");
-      this.#attachMiddleware(staticRoute, collection);
+      staticRoute.middleware = middlewareHandler;
       this.#cachedRoutes[method] = { [path]: staticRoute };
       return (req: Request, ctx: T, ...args) =>
         this.#handleRoute(req, staticRoute, ctx, ...args);
     }
 
-    const routes = this.#dynamicRoutes[method];
-    if (!routes) {
-      // TODO: Add configurable Method Not Allowed Handler
-      return () => new Response("Method Not Allowed", { status: 405 });
-    }
-    for (let i = routes.length; i--;) {
-      const r = routes[i];
-      console.log(r);
-      const params = r.pattern.exec({ pathname: path });
-      if (params !== null) {
-        this.#attachMiddleware(r, collection);
-        // r.handlers = [this.compose(...r.handlers.concat(collection.flat()))]
-        r.params = params.pathname.groups as Record<string, string>;
-        this.#cachedRoutes[method] = { [path]: r };
-        return (req: Request, ctx: T, ...args) =>
-          this.#handleRoute(req, r, ctx, ...args);
+    // if it is not a cached or static route, find a matching dynamic route.
+    const possibleDynamicRoutes = this.#dynamicRoutes[method];
+    if (possibleDynamicRoutes) {
+      for (let i = possibleDynamicRoutes.length; i--;) {
+        const dynamicRoute = possibleDynamicRoutes[i];
+        const params = dynamicRoute.pattern.exec({ pathname: path });
+        if (params !== null) {
+          dynamicRoute.middleware = middlewareHandler;
+          dynamicRoute.params = params.pathname.groups as Record<
+            string,
+            string
+          >;
+          this.#cachedRoutes[method] = { [path]: dynamicRoute };
+          return (req: Request, ctx: T, ...args) =>
+            this.#handleRoute(req, dynamicRoute, ctx, ...args);
+        }
       }
     }
-    // TODO: Add configurable Not Found Handler
-    return () => new Response("Not Found", { status: 404 });
+
+    const notFoundRoute: StaticRoute = {
+      method,
+      pathname: path,
+      handler: () => new Response("Not Found", { status: 404 }),
+      middleware: middlewareHandler,
+    };
+
+    this.#cachedRoutes[method] = { [path]: notFoundRoute };
+
+    return (req: Request, ctx: T, ...args) =>
+      this.#handleRoute(req, notFoundRoute, ctx, ...args);
   }
 
   handle(req: Request, ctx: T, ...args: Env[]): ReturnType<Handler<T, Env>> {
